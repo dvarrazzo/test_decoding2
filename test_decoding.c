@@ -1,12 +1,10 @@
 /*-------------------------------------------------------------------------
  *
- * test_decoding.c
+ * test_decoding2.c
  *		  example logical decoding output plugin
+ *		  with some butchering to test psycopg
  *
  * Copyright (c) 2012-2014, PostgreSQL Global Development Group
- *
- * IDENTIFICATION
- *		  contrib/test_decoding/test_decoding.c
  *
  *-------------------------------------------------------------------------
  */
@@ -44,6 +42,9 @@ typedef struct
 	bool		include_timestamp;
 	bool		skip_empty_xacts;
 	bool		xact_wrote_changes;
+	bool		skip_begin;
+	bool		skip_commit;
+	bool		skip_change;
 } TestDecodingData;
 
 static void pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt,
@@ -98,6 +99,9 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt,
 	data->include_xids = true;
 	data->include_timestamp = false;
 	data->skip_empty_xacts = false;
+	data->skip_begin = false;
+	data->skip_commit = false;
+	data->skip_change = false;
 
 	ctx->output_plugin_private = data;
 
@@ -156,6 +160,39 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt,
 				  errmsg("could not parse value \"%s\" for parameter \"%s\"",
 						 strVal(elem->arg), elem->defname)));
 		}
+		else if (strcmp(elem->defname, "skip-begin") == 0)
+		{
+
+			if (elem->arg == NULL)
+				data->skip_begin = true;
+			else if (!parse_bool(strVal(elem->arg), &data->skip_begin))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				  errmsg("could not parse value \"%s\" for parameter \"%s\"",
+						 strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "skip-commit") == 0)
+		{
+
+			if (elem->arg == NULL)
+				data->skip_commit = true;
+			else if (!parse_bool(strVal(elem->arg), &data->skip_commit))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				  errmsg("could not parse value \"%s\" for parameter \"%s\"",
+						 strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "skip-change") == 0)
+		{
+
+			if (elem->arg == NULL)
+				data->skip_change = true;
+			else if (!parse_bool(strVal(elem->arg), &data->skip_change))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				  errmsg("could not parse value \"%s\" for parameter \"%s\"",
+						 strVal(elem->arg), elem->defname)));
+		}
 		else
 		{
 			ereport(ERROR,
@@ -183,6 +220,9 @@ pg_decode_begin_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn)
 {
 	TestDecodingData *data = ctx->output_plugin_private;
 
+	if (data->skip_begin)
+		return;
+
 	data->xact_wrote_changes = false;
 	if (data->skip_empty_xacts)
 		return;
@@ -207,6 +247,9 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 					 XLogRecPtr commit_lsn)
 {
 	TestDecodingData *data = ctx->output_plugin_private;
+
+	if (data->skip_commit)
+		return;
 
 	if (data->skip_empty_xacts && !data->xact_wrote_changes)
 		return;
@@ -370,6 +413,9 @@ pg_decode_change(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 	MemoryContext old;
 
 	data = ctx->output_plugin_private;
+
+	if (data->skip_change)
+		return;
 
 	/* output BEGIN if we haven't yet */
 	if (data->skip_empty_xacts && !data->xact_wrote_changes)
