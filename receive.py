@@ -24,6 +24,12 @@ def main():
     cur.start_replication(slot_name=opt.slot, options=opts)
 
     def consumer(msg):
+        notices = msg.cursor.connection.notices
+        if notices:
+            for n in notices:
+                print(n.rstrip())
+            del notices[:]
+
         print("size: %s, data_start: %X, wal_end: %X" % (
             msg.data_size, msg.data_start, msg.wal_end))
         print(msg.payload)
